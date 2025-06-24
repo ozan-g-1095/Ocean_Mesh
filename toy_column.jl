@@ -32,11 +32,14 @@ gmsh.model.occ.extrude([(2, 1)], 0, 0, 1)
 # extrude triangle two to surface
 gmsh.model.occ.extrude([(2, 2)], 0, 0, 1)
 
+# fuse the two extruded volumes
+gmsh.model.occ.fuse([(3, 1)], [(3, 2)])
+
 # box at surface
 gmsh.model.occ.addBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 3)
 
-# cut the extruded volumes off at z = 0
-gmsh.model.occ.cut([(3, 1), (3, 2)], [(3, 3)])
+# cut the volume off at z = 0
+gmsh.model.occ.cut([(3, 1)], [(3, 3)])
 
 # set mesh resolution
 gmsh.model.occ.mesh.setSize(gmsh.model.occ.getEntities(0), h)

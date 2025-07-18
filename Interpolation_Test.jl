@@ -471,7 +471,7 @@ curve1 = gmsh.model.occ.addCurveLoop([line[1] for line in ordered_surface_lines]
 surface1 = gmsh.model.occ.addPlaneSurface([curve1])
 
 gmsh.model.occ.synchronize()
-h = 60000 # mesh size
+h = 30000 # mesh size
 
 field_ids = Int[]
 cell_coefficients = Matrix{Tuple{Float64, Float64, Float64, Float64}}(undef, m, n) #fill((0.0, 0.0, 0.0, 0.0), m, n)

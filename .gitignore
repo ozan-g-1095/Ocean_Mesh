@@ -3,3 +3,5 @@
 *.vtk
 *.shp
 topo_25.1.nc
+ETOPO*.nc
+*.png

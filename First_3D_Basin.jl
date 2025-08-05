@@ -64,4 +64,3 @@ gmsh.model.geo.synchronize()
 #  # gmsh.model.mesh.generate(3) # if you want to do the extrusion
 gmsh.write("Basin_3D.msh")
 gmsh.finalize()
-

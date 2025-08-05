@@ -128,8 +128,8 @@ function plot_H(lon, lat, z)
 end
 
 # load data
-# name = "blacksea"; res = "5min"; L = 50 # filter scale in km
-name = "global"; res = "60min"; L = 500 # filter scale in km
+name = "blacksea"; res = "7min"; L = 50 # filter scale in km
+# name = "global"; res = "60min"; L = 500 # filter scale in km
 d = jldopen("etopo_$(name)_$(res).jld2")
 lon = d["lon"]
 lat = d["lat"]

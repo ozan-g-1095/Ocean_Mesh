@@ -5,20 +5,28 @@ using DataStructures
 
 gmsh.initialize()
 
-ds = NCDataset("topo_25.1_coarsened1024.nc", "r")
+# ds = NCDataset("topo_25.1_coarsened1024.nc", "r")
 
-lon = ds["lon"][:]
-lat = ds["lat"][:]
-z   = ds["z"][:,:]
-close(ds)
+# lon = ds["lon"][:]
+# lat = ds["lat"][:]
+# z   = ds["z"][:,:]
+# close(ds)
+
+d = jldopen("topo_data/etopo_blacksea_7min_50km.jld2")
+lon = d["lon"]
+lat = d["lat"]
+z = d["z"]
+close(d)
 
 # gmsh.open("t10.msh")      
-gmsh.open("Biliniear_Correlation.msh") 
+gmsh.open("Boundary_Fixed_Part2.msh") 
 
 h_global = 0.5          
 h_0    = 0.1       
 
-R = 6378000 # Earth radius in meters
+R = 1 #6378000 # Earth radius in meters
+
+α = 0.5 
 
 
 function f(x,y)
@@ -48,7 +56,7 @@ curve_entities = gmsh.model.getEntities(1)  # 1 = dimension for curves
 curve_tags = [c[2] for c in curve_entities]
 
 dim = 1  # dimension for curves
-tag = curve_tags[1]
+# tag = curve_tags[1]
 
 line_ID_length = size(triangles, 1) * size(triangles, 2) 
 line_tag_IDs = collect(1:line_ID_length)
@@ -80,10 +88,13 @@ boundary = Dict{Int, Tuple{Float64, Float64}}()
 @load "boundary_line_orders" ordered_surface_lines
 @load "cell_coefficients" cell_coefficients
 
-@load "x_min" x_min
-@load "y_min" y_min
+@load "x_min_normalize" x_min_normalize
+@load "y_min_normalize" y_min_normalize
+@load "x_max_normalize" x_max_normalize
 @load "z_max" z_max
 @load "L" L
+
+@load "curve_loops" curve_loops
 
 function check_if_in_set(set, tag1, tag2)
     if ((haskey(set, (tag1, tag2))) || (haskey(set, (tag2, tag1))))
@@ -255,35 +266,40 @@ function add_nodes_and_lines()
                 push!(nodeSets, idx[k])
                 x_cor, y_cor = triangle_coords[k, 1:2]
 
-                lon_pos = rad2deg(x_cor/R)
-                lat_pos = rad2deg(y_cor/R)
-
+                lon_pos = rad2deg(((x_cor *(x_max_normalize-x_min_normalize) ) + x_min_normalize ) / R)# rad2deg(x_cor/R)
+                lat_pos = rad2deg(((y_cor *(x_max_normalize-x_min_normalize) ) + y_min_normalize ) / R)#rad2deg(y_cor/R)
                 
-                i = argmin(abs.(lon .- lon_pos))
+                p = argmin(abs.(lon .- lon_pos))
                 j = argmin(abs.(lat .- lat_pos))
 
+                # println("lat_pos: ", lat_pos, " lon_pos: ", lon_pos)
+                # println("p: ", p, " j: ", j)
 
-                z_cor_calc = bilinear_depth(cell_coefficients[i, j], x_cor, y_cor)
-                
+                z_cor_calc = bilinear_depth(cell_coefficients[p, j], x_cor, y_cor)
+                # println("cell_coefficients : ", cell_coefficients[p,j])
+                # println("Calculated z depth ", z_cor_calc)
 
                 if idx[k] in boundary_matrix
                     z_cor_calc = 0.0
                 end
 
-                if z_cor_calc > 0 
-                    z_cor_calc = -0.07*z_max
-                    println("zcor ", z_cor_calc)
-                elseif -0.07 < z_cor_calc/z_max < 0 
-                    println("zcor very sMAAAAL", z_cor_calc)
-                    z_cor_calc = -rand(0.05:0.01:0.15)*z_max
+                if -0.01< z_cor_calc< 0
+                    z_cor_calc -= 0.01
+                elseif z_cor_calc > 0 
+                    z_cor_calc = -0.01/5
+                    # println("zcor ", z_cor_calc)
+                # elseif -0.05 < z_cor_calc < 0 
+                #     println("zcor very sMAAAAL", z_cor_calc)
+                #     z_cor_calc = -rand(0.05:0.01:0.15)
                 end
 
                 push!(pointtagsno, idx[k])
-                gmsh.model.occ.addPoint((x_cor-x_min)/L, (y_cor-y_min)/L, z_cor_calc/z_max, h_0, idx[k])
+                gmsh.model.occ.addPoint(x_cor, y_cor, z_cor_calc, h_0/5, idx[k])
+                # gmsh.model.occ.addPoint((x_cor-x_min_normalize)/(x_max_normalize - x_min_normalize), (y_cor-y_min_normalize)/(x_max_normalize - x_min_normalize), z_cor_calc, h_0, idx[k])
+
             end
         end 
 
-    
             if !( (node1, node2) in unique_edge_boundary ||  (node2, node1) in unique_edge_boundary)
                 if !(check_if_in_set(edgeSets, node1, node2)) 
                     edge_new = gmsh.model.occ.addLine(node1, node2, popfirst!(free_line_tag_IDs) )
@@ -365,10 +381,10 @@ println("HERE??")
 # deleteat!(surfaceTags, 3)
 push!(surfaceTags, surface1)
 
-shell = gmsh.model.occ.addSurfaceLoop(Int.(surfaceTags)) # [surface1] 
-vol   = gmsh.model.occ.addVolume([shell])     
+# shell = gmsh.model.occ.addSurfaceLoop(Int.(surfaceTags)) # [surface1] 
+# vol   = gmsh.model.occ.addVolume([shell])     
 
-# gmsh.model.occ.removeAllDuplicates()
+gmsh.model.occ.removeAllDuplicates()
 gmsh.model.occ.synchronize()
 
 pop!(surfaceTags)
@@ -376,7 +392,7 @@ gmsh.model.addPhysicalGroup(0, Int32.(collect(nodeSets)), 1, "bot")
 gmsh.model.addPhysicalGroup(1, Int32.(edges), 2, "bot") #Int32.(collect(edges))
 gmsh.model.addPhysicalGroup(2, [Int32(surface1)], 3, "sfc")
 gmsh.model.addPhysicalGroup(2, Int32.(collect(values(surfaceTags))), 4, "bot")
-gmsh.model.addPhysicalGroup(3, [vol], 5, "int")
+# gmsh.model.addPhysicalGroup(3, [vol], 5, "int")
 
 gmsh.model.mesh.generate(3)
 gmsh.write("Reconstruct.msh")

@@ -470,29 +470,13 @@ gmsh.model.add("Boundary_Fixed_Part2.msh")
 
 # create_loop(boundary_edges_unordered_vector, boundary_edges_ordered)
 
-fix_boundary(edges_to_triangles, nodes_on_the_boundary, added_points_to_the_mesh)
+# fix_boundary(edges_to_triangles, nodes_on_the_boundary, added_points_to_the_mesh)
 
-gmsh.model.occ.synchronize()
+# gmsh.model.occ.synchronize()
 
-list_of_loops = Int[]
-list_of_surfaces = Int[]
 
-function create_curve_loops(edge_number_of_loops)
-    for loop in edge_number_of_loops
-        loop_no = gmsh.model.occ.addCurveLoop(loop)
-        push!(list_of_loops, loop_no)
-    end
-end
-
-function create_surfaces_based_on_loops(loop_list, surfaces)
-    for elem in loop_list
-        surface = gmsh.model.occ.addPlaneSurface([elem])
-        push!(surfaces, surface)
-    end
-end
-
-create_curve_loops(curve_loops)
-create_surfaces_based_on_loops(list_of_loops, list_of_surfaces)
+# create_curve_loops(curve_loops)
+# create_surfaces_based_on_loops(list_of_loops, list_of_surfaces)
 
 boundary_edge_to_triangle = Dict{Tuple{Int, Int}, Vector{Int}}()
 
@@ -564,6 +548,8 @@ for key in keys(boundary_connectivities)
     end
 end
 
+
+#----------------------------------------------------------------------------------------------------------------------------------------
 All_Loops =  Vector{Vector{Vector{Int}}}()
 
 function find_loop(start, current, index, loop_no_ocean, loop_no, keep_start::Bool, prev_points::Vector{Int})
@@ -720,18 +706,64 @@ for i in (1:length(edges_on_the_boundary_ordered))
     find_loop(edges_on_the_boundary_ordered[i][1][2],edges_on_the_boundary_ordered[i][1][3], 1, i, 1, false, Int[])
 end
 
-min_length = typemax(Int)
-min_loop = Int[]
-for loop in All_Loops[2]
-    if 246 in loop && length(loop) < min_length && 452 in loop && 211 in loop
-        global min_length = length(loop)
-        global min_loop = loop
+points_to_include = [10 , 227]
+
+loops_fixed_boundary = Vector{Vector{Int}}()
+
+for i in (1:length(All_Loops))
+    min_length = typemax(Int)
+    min_loop = Int[]
+    for loop in All_Loops[i]
+        if points_to_include[i] in loop && length(loop) < min_length 
+            min_length = length(loop)
+            min_loop = loop
+        end
+    end
+    push!(loops_fixed_boundary, min_loop)
+end
+#----------------------------------------------------------------------------------------------------------------------------------------
+
+for i in 1:length(loops_fixed_boundary)
+    for j in (1:(length(loops_fixed_boundary[i])-1))
+        coor = coord_of[loops_fixed_boundary[i][j]]
+        gmsh.model.occ.addPoint(coor[1], coor[2], coor[3], h_0, loops_fixed_boundary[i][j])
     end
 end
 
-for elem in min_loop
-    println(elem)
+n = length(loops_fixed_boundary)  # or whatever size you need
+loop_lines_ordered = [Int[] for _ in 1:n]
+
+for i in 1:length(loops_fixed_boundary)
+    for j in (1:(length(loops_fixed_boundary[i])-1))
+        line_no = gmsh.model.occ.addLine(loops_fixed_boundary[i][j], loops_fixed_boundary[i][j+1] )
+        push!(loop_lines_ordered[i], line_no)
+    end
 end
+
+list_of_loops = Int[]
+list_of_surfaces = Int[]
+
+function create_curve_loops(edge_number_of_loops)
+    for loop in edge_number_of_loops
+        loop_no = gmsh.model.occ.addCurveLoop(loop)
+        push!(list_of_loops, loop_no)
+    end
+end
+
+function create_surfaces_based_on_loops(loop_list, surfaces)
+    for elem in loop_list
+        surface = gmsh.model.occ.addPlaneSurface([elem])
+        push!(surfaces, surface)
+    end
+end
+
+create_curve_loops(loop_lines_ordered)
+
+create_surfaces_based_on_loops(list_of_loops, list_of_surfaces)
+
+# for elem in min_loop
+#     println(elem)
+# end
 
 function is_same(tuple_main, tuple)
     return tuple_main == tuple 
@@ -760,8 +792,9 @@ end
 
 
 @save "curve_loops" curve_loops
+@save "loops_fixed_boundary" loops_fixed_boundary
 
-# gmsh.model.occ.synchronize()
-# gmsh.model.mesh.generate(3)
-# gmsh.write("Boundary_Fixed_Part2.msh")
-# gmsh.finalize()
+gmsh.model.occ.synchronize()
+gmsh.model.mesh.generate(3)
+gmsh.write("Boundary_Fixed_Part2.msh")
+gmsh.finalize()

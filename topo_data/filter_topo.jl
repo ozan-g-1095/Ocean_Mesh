@@ -1,15 +1,9 @@
 using NCDatasets
 using JLD2
+using Plots
+using LaTeXStrings
 using ProgressMeter
 using Printf
-# using PyPlot
-# using PyCall
-
-# ccrs = pyimport("cartopy.crs")
-
-# pygui(false)
-# plt.style.use("plots.mplstyle")
-# plt.close("all")
 
 const R_E = 6.371e6      # Earth's radius in meters
 const Ω = 2π/(24*60*60)  # Earth's angular velocity in rad/s
@@ -26,9 +20,9 @@ See also [`circle_average`](@ref).
 function filter_topo(lon, lat, z; L=1e5)
     z_filtered = copy(z)
     @showprogress for i in axes(z, 1), j in axes(z, 2)
-        if z[i, j] <= 0 # only filter ocean points
+        # if z[i, j] <= 0 # only filter ocean points
             z_filtered[i, j] = circle_average(lon, lat, z, i, j; D=L)
-        end
+        # end
     end
     return z_filtered
 end
@@ -77,16 +71,24 @@ function index_square_ring(i0, j0, n, nlon, nlat)
     indices = Vector{CartesianIndex}(undef, 8n)
     idx = 1
     for i in (i0-n):(i0+n)
-        indices[idx]   = CartesianIndex(mod1(i, nlon), mod1(j0-n, nlat))  # left edge
-        indices[idx+1] = CartesianIndex(mod1(i, nlon), mod1(j0+n, nlat))  # right edge
-        idx += 2
+        if j0 - n ≥ 1
+            indices[idx] = CartesianIndex(mod1(i, nlon), j0 - n)  # left edge
+            idx += 1
+        end
+        if j0 + n ≤ nlat 
+            indices[idx] = CartesianIndex(mod1(i, nlon), j0 + n)  # right edge
+            idx += 1
+        end
     end
     for j in (j0-n+1):(j0+n-1) # avoid double counting corners
-        indices[idx]   = CartesianIndex(mod1(i0-n, nlon), mod1(j, nlat))  # left edge
-        indices[idx+1] = CartesianIndex(mod1(i0+n, nlon), mod1(j, nlat))  # right edge
-        idx += 2
+        if j ≥ 1 && j ≤ nlat
+            indices[idx] = CartesianIndex(mod1(i0 - n, nlon), j)  # bottom edge
+            idx += 1
+            indices[idx] = CartesianIndex(mod1(i0 + n, nlon), j)  # top edge
+            idx += 1
+        end
     end 
-    @assert idx == 8n + 1
+    indices = indices[1:idx-1]  # trim unused space if ring overlapped pole
     return indices
 end
 
@@ -106,31 +108,27 @@ function sphere_distance(lon1, lat1, lon2, lat2)
     return √(dx^2 + dy^2)
 end
 
-"""
-    plot_H(lon, lat, z)
-
-Plot the topography `z` as depth `H = -z` on a Robinson projection.
-"""
-function plot_H(lon, lat, z)
+function plot_H(lon, lat, z, fname; vmax=6000)
     H = -z
-    H[H .<= 0] .= NaN
-
-    fig, ax = plt.subplots(1)
-    ax = plt.axes(projection=ccrs.Robinson(central_longitude=0))
-    img = ax.pcolormesh(lon, lat, H'/1e3, cmap="magma_r", rasterized=true, 
-                        vmin=0, vmax=6, transform=ccrs.PlateCarree())
-    plt.colorbar(img, label=L"Depth $H$ (km)", shrink=0.6, extend="max")
-    ax.coastlines(lw=0.25)
-    ax.spines["geo"].set_linewidth(0.25)
-    savefig("H.png")
-    @info "Saved 'H.png'"
-    plt.close()
+    H[H .< 0] .= NaN
+    heatmap(lon, lat, H', dpi=300,
+            xlabel="Longitude (°)", ylabel="Latitude (°)",
+            cb_title=L"$H$ (m)", aspect_ratio=:equal,
+            clims=(0, vmax), 
+            c=cgrad(:magma, rev=true),
+            # c=:seaborn_rocket_gradient,
+            grid=false, xlimits=(lon[1], lon[end]),
+            ylimits=(lat[1], lat[end]), tickdirection=:out)
+    savefig(fname)
+    @info "Saved '$fname'"
 end
 
-# load data
+# settings
 # name = "blacksea"; res = "5min"; L = 50 # filter scale in km
 name = "global"; res = "60min"; L = 500 # filter scale in km
-d = jldopen("etopo_$(name)_$(res).jld2")
+
+# load data
+d = jldopen(joinpath(@__DIR__, "etopo_$(name)_$(res).jld2"))
 lon = d["lon"]
 lat = d["lat"]
 z = d["z"]
@@ -139,9 +137,14 @@ close(d)
 
 # filter
 z = filter_topo(lon, lat, z; L=L*1e3) # convert km to m
-ofile = "etopo_$(name)_$(res)_$(L)km.jld2"
+ofile = joinpath(@__DIR__, "etopo_$(name)_$(res)_$(L)km.jld2")
 jldsave(ofile; lon, lat, z)
 @info "Saved '$ofile'"
 
 # plot
-plot_H(lon, lat, z, "H_$(name)_filtered.png")
+d = jldopen(joinpath(@__DIR__, "etopo_$(name)_$(res)_$(L)km.jld2"))
+lon = d["lon"]
+lat = d["lat"]
+z = d["z"]
+close(d)
+plot_H(lon, lat, z, joinpath(@__DIR__, "H_$(name)_filtered.png"))

@@ -5,20 +5,28 @@ using DataStructures
 
 gmsh.initialize()
 
-ds = NCDataset("topo_25.1_coarsened1024.nc", "r")
+# ds = NCDataset("topo_25.1_coarsened1024.nc", "r")
 
-lon = ds["lon"][:]
-lat = ds["lat"][:]
-z   = ds["z"][:,:]
-close(ds)
+# lon = ds["lon"][:]
+# lat = ds["lat"][:]
+# z   = ds["z"][:,:]
+# close(ds)
+
+d = jldopen("topo_data/etopo_blacksea_7min_50km.jld2")
+lon = d["lon"]
+lat = d["lat"]
+z = d["z"]
+close(d)
 
 # gmsh.open("t10.msh")      
-gmsh.open("Biliniear_Correlation.msh") 
+gmsh.open("Boundary_Fixed_Part2.msh") 
 
 h_global = 0.5          
 h_0    = 0.1       
 
-R = 6378000 # Earth radius in meters
+R = 1 #6378000 # Earth radius in meters
+
+α = 0.5 
 
 
 function f(x,y)
@@ -48,7 +56,7 @@ curve_entities = gmsh.model.getEntities(1)  # 1 = dimension for curves
 curve_tags = [c[2] for c in curve_entities]
 
 dim = 1  # dimension for curves
-tag = curve_tags[1]
+# tag = curve_tags[1]
 
 line_ID_length = size(triangles, 1) * size(triangles, 2) 
 line_tag_IDs = collect(1:line_ID_length)
@@ -59,6 +67,22 @@ free_line_tag_IDs = line_tag_IDs#setdiff(line_tag_IDs, curve_tags)
 # for tag in curve_tags
 #     points, pairs = gmsh.model.getAdjacencies(dim, tag)
 # end
+
+
+A = gmsh.model.getEntities(2)
+
+elementTypesTTriangle = Vector{Int}()
+elementTagsTriangle = Vector{Vector{Int}}()
+nodeTagsElementTriangle = Vector{Vector{Int}}()
+
+nodes_of_triangles_in_each_loop = Vector{Vector{Int}}()
+
+for elem in A
+    elementTypesForLoop, elementTagsForLoop, nodeTagsElementForLoop = gmsh.model.mesh.getElements(elem[1], elem[2]) # elem = (dim, tag)
+    push!(nodeTagsElementTriangle, nodeTagsElementForLoop[1])
+    push!(elementTagsTriangle, elementTagsForLoop[1])
+end
+
 
 
 for i in (1:size(triangles, 1))
@@ -74,16 +98,20 @@ boundaryEdgeSet = Int[]
 edges    = Set{Int}()  
 nodeSets = Set{Int}()
 mesh_to_occ_point = Dict{Int, Int}()
-loopTags = Int[]
+loopTags = Vector{Vector{Int}}()
 boundary = Dict{Int, Tuple{Float64, Float64}}()
 
-@load "boundary_line_orders" ordered_surface_lines
+# @load "boundary_line_orders" ordered_surface_lines
 @load "cell_coefficients" cell_coefficients
 
-@load "x_min" x_min
-@load "y_min" y_min
+@load "x_min_normalize" x_min_normalize
+@load "y_min_normalize" y_min_normalize
+@load "x_max_normalize" x_max_normalize
 @load "z_max" z_max
 @load "L" L
+@load "loops_fixed_boundary" loops_fixed_boundary
+
+# @load "curve_loops" curve_loops
 
 function check_if_in_set(set, tag1, tag2)
     if ((haskey(set, (tag1, tag2))) || (haskey(set, (tag2, tag1))))
@@ -181,46 +209,67 @@ function find_connectivities(unique_edge_sets, bndix)
     end
 end
 
-loop_line_tags_ordered = Int[]
+
+n = length(loops_fixed_boundary) 
+loop_line_tags_ordered = [Int[] for _ in 1:n]
 
 function create_boundary_loop(dict)
-    k , v = first(dict)
-    println("This is v ", v)
-    initial = k
-    current = v[1]
-    println("initial ", initial)
-    println("current ", current)
- 
-    line_no = get_correct_edge(boundary_node_IDs_line_ID, initial, current)
-    edge_new = gmsh.model.occ.addLine(initial, current, line_no)
-    push!(loop_line_tags_ordered, edge_new)
-    push!(edges, edge_new)
-    edgeSets[(initial, current)] = edge_new
-    for i in 1:length(dict)
-        prev = current
-        v = dict[prev]
-        # println(" prev ", prev, " new ", v)
-        if v[1] == k
-            current = v[2]
-        else
-            current = v[1]
-        end
-        k = prev
+    for i in (1:length(loops_fixed_boundary))
+        # println("dict: ", dict)
+        k , v = first(dict)
+        # println("This is k ", k)
+        # println("This is v ", v)
+        initial = k
+        current = v[1]
+        # println("initial ", initial)
+        # println("current ", current)
+        # delete!(dict, k)
 
-        line_no = get_correct_edge(boundary_node_IDs_line_ID, prev, current)
-        # println(" LINE NO ", line_no)
-        edge_new = gmsh.model.occ.addLine(prev, current, line_no)
-        push!(loop_line_tags_ordered, edge_new)
+        line_no = get_correct_edge(boundary_node_IDs_line_ID, initial, current)
+        # println("line_no: ", line_no)
+        edge_new = gmsh.model.occ.addLine(initial, current, line_no)
+        push!(loop_line_tags_ordered[i], edge_new)
         push!(edges, edge_new)
-        edgeSets[(prev, current)] = edge_new
-        if current == initial 
-            # println("DONE HERE")
-            return
+        edgeSets[(initial, current)] = edge_new
+        # for i in 1:length(dict)
+        while current != initial
+            # println("current ", current)
+            prev = current
+            v = dict[prev]
+            # println("prev ", prev, " new ", v)
+            if v[1] == k
+                current = v[2]
+            else
+                current = v[1]
+            end
+            k = prev
+            # println("current to be deleted ", current)
+            delete!(dict, prev)
+
+            line_no = get_correct_edge(boundary_node_IDs_line_ID, prev, current)
+            # println(" LINE NO ", line_no)
+            edge_new = gmsh.model.occ.addLine(prev, current, line_no)
+            push!(loop_line_tags_ordered[i], edge_new)
+            push!(edges, edge_new)
+            edgeSets[(prev, current)] = edge_new
+
+            # if current == initial 
+            #     # println("DONE HERE")
+            #     break
+            # end
+
         end
+        # println("dict: ", dict)
+        delete!(dict, current)
     end
 end
 
+gmsh.finalize()
+
+
+gmsh.initialize()
 gmsh.model.add("Reconstruct")
+
 number_oooo = 0
 
 pointtagsno = SortedSet()
@@ -255,35 +304,40 @@ function add_nodes_and_lines()
                 push!(nodeSets, idx[k])
                 x_cor, y_cor = triangle_coords[k, 1:2]
 
-                lon_pos = rad2deg(x_cor/R)
-                lat_pos = rad2deg(y_cor/R)
-
+                lon_pos = rad2deg(((x_cor *(x_max_normalize-x_min_normalize) ) + x_min_normalize ) / R)# rad2deg(x_cor/R)
+                lat_pos = rad2deg(((y_cor *(x_max_normalize-x_min_normalize) ) + y_min_normalize ) / R)#rad2deg(y_cor/R)
                 
-                i = argmin(abs.(lon .- lon_pos))
+                p = argmin(abs.(lon .- lon_pos))
                 j = argmin(abs.(lat .- lat_pos))
 
+                # println("lat_pos: ", lat_pos, " lon_pos: ", lon_pos)
+                # println("p: ", p, " j: ", j)
 
-                z_cor_calc = bilinear_depth(cell_coefficients[i, j], x_cor, y_cor)
-                
+                z_cor_calc = bilinear_depth(cell_coefficients[p, j], x_cor, y_cor)
+                # println("cell_coefficients : ", cell_coefficients[p,j])
+                # println("Calculated z depth ", z_cor_calc)
 
                 if idx[k] in boundary_matrix
                     z_cor_calc = 0.0
                 end
 
-                if z_cor_calc > 0 
-                    z_cor_calc = -0.07*z_max
-                    println("zcor ", z_cor_calc)
-                elseif -0.07 < z_cor_calc/z_max < 0 
-                    println("zcor very sMAAAAL", z_cor_calc)
-                    z_cor_calc = -rand(0.05:0.01:0.15)*z_max
+                if -0.01< z_cor_calc< 0
+                    z_cor_calc -= 0.01
+                elseif z_cor_calc > 0 
+                    z_cor_calc = -0.01/5
+                    # println("zcor ", z_cor_calc)
+                # elseif -0.05 < z_cor_calc < 0 
+                #     println("zcor very sMAAAAL", z_cor_calc)
+                #     z_cor_calc = -rand(0.05:0.01:0.15)
                 end
 
                 push!(pointtagsno, idx[k])
-                gmsh.model.occ.addPoint((x_cor-x_min)/L, (y_cor-y_min)/L, z_cor_calc/z_max, h_0, idx[k])
+                gmsh.model.occ.addPoint(x_cor, y_cor, z_cor_calc, h_0/5, idx[k])
+                # gmsh.model.occ.addPoint((x_cor-x_min_normalize)/(x_max_normalize - x_min_normalize), (y_cor-y_min_normalize)/(x_max_normalize - x_min_normalize), z_cor_calc, h_0, idx[k])
+
             end
         end 
 
-    
             if !( (node1, node2) in unique_edge_boundary ||  (node2, node1) in unique_edge_boundary)
                 if !(check_if_in_set(edgeSets, node1, node2)) 
                     edge_new = gmsh.model.occ.addLine(node1, node2, popfirst!(free_line_tag_IDs) )
@@ -322,61 +376,90 @@ end
 
 find_connectivities(unique_edges, bndix)
 add_nodes_and_lines()
-create_boundary_loop(each_node_and_neighbor_nodes)
 
+
+create_boundary_loop(each_node_and_neighbor_nodes)
 collect(pointtagsno)
 
-# println(boundary)
 
-for i in (1:length(elementTags))
-    points = tag_to_nodes_triangles[elementTags[i]]
-    # println("Here are the element tags number ", i, " ",  Int.(points) )
+for idx in (1:length(elementTagsTriangle))
 
-    point1 = points[1]
-    point2 = points[2]
-    point3 = points[3]
+    elementTagsForLoop = elementTagsTriangle[idx]
 
-    edge1  = get_correct_edge(edgeSets, point1, point2)
-    edge2  = get_correct_edge(edgeSets, point2, point3)
-    edge3  = get_correct_edge(edgeSets, point3, point1)
+    push!(loopTags, Int[])
 
-    # println("edge1 ", edge1, " edge2 ", edge2, " edge3 ", edge3)
+    for i in (1:length(elementTagsForLoop))
+        points = tag_to_nodes_triangles[elementTagsForLoop[i]]
+        # println("Here are the element tags number ", i, " ",  Int.(points) )
 
-    curve_loop = gmsh.model.occ.addCurveLoop([edge1, edge2, edge3])
-    push!(loopTags, curve_loop)
+        point1 = points[1]
+        point2 = points[2]
+        point3 = points[3]
+
+        edge1  = get_correct_edge(edgeSets, point1, point2)
+        edge2  = get_correct_edge(edgeSets, point2, point3)
+        edge3  = get_correct_edge(edgeSets, point3, point1)
+
+        # println("edge1 ", edge1, " edge2 ", edge2, " edge3 ", edge3)
+
+        curve_loop = gmsh.model.occ.addCurveLoop([edge1, edge2, edge3])
+        push!(loopTags[idx], curve_loop)
+    end
+
 end
 
-volumeTags = Int[]
-surfaceTags = Int[]
+n = length(loop_line_tags_ordered) 
+surfaceTags = Vector{Vector{Int}}() # Int[]
+volumeTags = Vector{Vector{Int}}()
 
 for i in (1:length(loopTags))
-    surface = gmsh.model.occ.addPlaneSurface([loopTags[i]])
-    push!(surfaceTags, surface)
+    surfaces_of_loop = Int[]
+    for elem in loopTags[i]
+        # println("elem: ", elem)
+        surface = gmsh.model.occ.addPlaneSurface([elem])
+        push!(surfaces_of_loop, surface)
+    end
+    push!(surfaceTags, surfaces_of_loop)
 end
 
 println("Hello it has come here")
 
-curve1 = gmsh.model.occ.addCurveLoop(loop_line_tags_ordered)
-surface1 = gmsh.model.occ.addPlaneSurface([curve1])
+top_surfaces = Int[]
 
 println("HERE??")
 
-# gmsh.model.occ.remove([(1,2)], true)
-# deleteat!(surfaceTags, 3)
-push!(surfaceTags, surface1)
+for loop in loop_line_tags_ordered
+    curve1 = gmsh.model.occ.addCurveLoop(loop)
+    surface1 = gmsh.model.occ.addPlaneSurface([curve1])
+    push!(top_surfaces, surface1)
+end
 
-shell = gmsh.model.occ.addSurfaceLoop(Int.(surfaceTags)) # [surface1] 
-vol   = gmsh.model.occ.addVolume([shell])     
+for (idx, elem) in enumerate(top_surfaces)
+    # println("idx: ", idx)
+    # println("surfaceTags[idx]: ", surfaceTags[idx])
+    push!(surfaceTags[idx], elem)
+end
 
-# gmsh.model.occ.removeAllDuplicates()
+volumes = Int[]
+for surfaceTagsLoop in surfaceTags
+    shell = gmsh.model.occ.addSurfaceLoop(Int.(surfaceTagsLoop)) # [surface1] 
+    vol   = gmsh.model.occ.addVolume([shell])   
+    push!(volumes, vol)  
+end
+
+gmsh.model.occ.removeAllDuplicates()
 gmsh.model.occ.synchronize()
 
-pop!(surfaceTags)
+
+for i in 1:length(top_surfaces)
+    pop!(surfaceTags[i])
+end
+
 gmsh.model.addPhysicalGroup(0, Int32.(collect(nodeSets)), 1, "bot")
 gmsh.model.addPhysicalGroup(1, Int32.(edges), 2, "bot") #Int32.(collect(edges))
-gmsh.model.addPhysicalGroup(2, [Int32(surface1)], 3, "sfc")
-gmsh.model.addPhysicalGroup(2, Int32.(collect(values(surfaceTags))), 4, "bot")
-gmsh.model.addPhysicalGroup(3, [vol], 5, "int")
+gmsh.model.addPhysicalGroup(2, top_surfaces, 3, "sfc")
+gmsh.model.addPhysicalGroup(2, vcat(surfaceTags...), 4, "bot")
+gmsh.model.addPhysicalGroup(3, volumes, 5, "int")
 
 gmsh.model.mesh.generate(3)
 gmsh.write("Reconstruct.msh")

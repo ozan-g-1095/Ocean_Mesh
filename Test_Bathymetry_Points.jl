@@ -16,18 +16,25 @@ R = 6378000
 gmsh.initialize()
 gmsh.model.add("Test_Bathymetry_Points")
 
-ds = NCDataset("topo_25.1_coarsened1024.nc", "r")
+ds = NCDataset("topo_data/ETOPO_2022_v1_60s_N90W180_surface.nc", "r")
 
 lon = ds["lon"][:]
 lat = ds["lat"][:]
 z   = ds["z"][:,:]
 close(ds)
 
-lon_min =26.8#-179
-lon_max =30 #179
+# d = jldopen("topo_data/etopo_blacksea_5min_50km.jld2")
+# lon = d["lon"]
+# lat = d["lat"]
+# z = d["z"]
+# close(d)
+
+
+lon_min =26.27#-179
+lon_max =42.25 #179
 
 lat_min= 40.13#-79
-lat_max=  41#79
+lat_max= 47.70#79
 
 displacement_lon = abs(lon[1] - lon[2])
 displacement_lat = abs(lat[1] - lat[2])
@@ -38,8 +45,11 @@ min_dist = sqrt((displacement_lat/4)^2 + (displacement_lon/4)^2 )
 function find_biliniear_interpolation()
     @showprogress 1 ("Processing longitude loop...") for i in (argmin(abs.(lon .- lon_min)): argmin(abs.(lon .- lon_max))) # longitude
         for j in (argmin(abs.(lat .- lat_min)):argmin(abs.(lat .- lat_max))) # latitude
-
-            gmsh.model.occ.addPoint(i, j, z[i,j]/50)
+            if z[i,j]/50<=0
+                x_max = abs((argmin(abs.(lon .- lon_min)) - argmin(abs.(lon .- lon_max))))
+                y_max = abs((argmin(abs.(lat .- lat_min)) -argmin(abs.(lat .- lat_max))))
+                gmsh.model.occ.addPoint(i/x_max, j/x_max, z[i,j]/x_max)
+            end
         end
     end
     gmsh.model.occ.synchronize()
@@ -48,8 +58,8 @@ end
 
 find_biliniear_interpolation()
 
-xmin, xmax = 1380, 1410
-ymin, ymax = 801, 807
+xmin, xmax = 12.9, 13.8
+ymin, ymax = 8.15, 8.65
 lc = 0.0              # mesh size at points (0 lets background settings control)
 
 # addRectangle(x, y, z, dx, dy; tag?)

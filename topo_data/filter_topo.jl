@@ -132,19 +132,19 @@ function plot_H_panama(lon, lat, z, fname; vmax=6000)
     plot_H(lon_p, lat_p, z_p, fname; vmax=vmax)
 end
 
-function fill_panama!(lon, lat, z)
+function fill_panama!(lon, lat, z; zval=5)
     lon_mask = lon .>= -80 .&& lon .<= -75
     lat_mask = lat .>= 8 .&& lat .<= 9
-    z[lon_mask, lat_mask] .= NaN
+    z[lon_mask, lat_mask] .= zval
     lon_mask = lon .>= -82 .&& lon .<= -76
     lat_mask = lat .>= 9 .&& lat .<= 10
-    z[lon_mask, lat_mask] .= NaN
+    z[lon_mask, lat_mask] .= zval
     lon_mask = lon .>= -83 .&& lon .<= -82
     lat_mask = lat .>= 10 .&& lat .<= 11
-    z[lon_mask, lat_mask] .= NaN
+    z[lon_mask, lat_mask] .= zval
     lon_mask = lon .>= -84 .&& lon .<= -83
     lat_mask = lat .>= 10 .&& lat .<= 13
-    z[lon_mask, lat_mask] .= NaN
+    z[lon_mask, lat_mask] .= zval
     return z
 end
 
